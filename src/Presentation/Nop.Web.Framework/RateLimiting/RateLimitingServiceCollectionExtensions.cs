@@ -7,13 +7,9 @@ namespace Nop.Web.Framework.RateLimiting;
 
 /// <summary>
 /// Registers inbound rate limiting and outbound 429 retry. Each half is registered only when its policy parses as enabled.
-/// Config is read once per process.
 /// </summary>
 public static class RateLimitingServiceCollectionExtensions
 {
-    /// <summary>
-    /// Adds the rate-limit log writer, the inbound limiter, and the outbound retry handler.
-    /// </summary>
     public static void AddNopRateLimiting(this IServiceCollection services, CommonConfig config)
     {
         ArgumentNullException.ThrowIfNull(services);

@@ -4,9 +4,6 @@ using System.Threading.RateLimiting;
 
 namespace Nop.Web.Framework.RateLimiting;
 
-/// <summary>
-/// One inbound rejection, parsed from the rate-limiter middleware.
-/// </summary>
 public sealed record RateLimitRejection(
     string Partition,
     string Method,
@@ -17,7 +14,7 @@ public sealed record RateLimitRejection(
     TimeSpan Window)
 {
     /// <summary>
-    /// Reads the rejection the middleware just produced. The path omits the query string.
+    /// Reads the rejection the middleware just produced. The path is PathBase + Path and omits the query string.
     /// </summary>
     public static RateLimitRejection From(OnRejectedContext context, InboundRateLimitPolicy policy)
     {
@@ -42,13 +39,10 @@ public sealed record RateLimitRejection(
 }
 
 /// <summary>
-/// Body of <c>RateLimiterOptions.OnRejected</c>. Owns the per-window log dedupe state.
+/// Owns the per-window log dedupe state for inbound rejections.
 /// </summary>
 public partial class InboundRejectionHandler
 {
-    /// <summary>
-    /// Upper bound on distinct partitions logged per window. A forged Host header cannot write one row per request.
-    /// </summary>
     protected const int MaxLoggedPartitionsPerWindow = 100;
 
     protected readonly InboundRateLimitPolicy _policy;
@@ -83,7 +77,7 @@ public partial class InboundRejectionHandler
     }
 
     /// <summary>
-    /// Whole seconds, rounded up, minimum 1. Retry-After does not accept a fraction, and 0 tells the client to retry immediately.
+    /// Whole seconds, rounded up, with a floor of 1.
     /// </summary>
     public static string RetryAfterSeconds(TimeSpan retryAfter)
     {
@@ -94,10 +88,6 @@ public partial class InboundRejectionHandler
         return seconds.ToString(CultureInfo.InvariantCulture);
     }
 
-    /// <summary>
-    /// At most one admission per partition per wall-clock-aligned window, bounded per window.
-    /// The set is dropped when the window index changes, so retained partitions never outlive that window.
-    /// </summary>
     private sealed class RejectionLogGate(TimeSpan window, int maxPartitionsPerWindow)
     {
         private readonly Lock _lock = new();

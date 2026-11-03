@@ -6,13 +6,10 @@ using Nop.Services.Logging;
 
 namespace Nop.Web.Framework.RateLimiting;
 
-/// <summary>
-/// Rate-limit rows that reach System → Log. The prefix is the filter key and the IgnoreLogWordlist switch.
-/// </summary>
 public abstract record RateLimitEvent
 {
     /// <summary>
-    /// Stable prefix. System → Log filters on it, and IgnoreLogWordlist turns the events off when it contains this text.
+    /// Stable prefix. DefaultLogger drops a row when IgnoreLogWordlist is a substring of the short or full message.
     /// </summary>
     public const string ShortMessagePrefix = "Rate limit exceeded:";
 
@@ -26,9 +23,6 @@ public abstract record RateLimitEvent
 
     public abstract string FullMessage { get; }
 
-    /// <summary>
-    /// An inbound request was rejected.
-    /// </summary>
     public sealed record InboundRejected(RateLimitRejection Rejection) : RateLimitEvent
     {
         protected override string Summary =>
@@ -111,9 +105,6 @@ public abstract record RateLimitEvent
     }
 }
 
-/// <summary>
-/// The only writer of rate-limit rows. Opens its own scope because HTTP handlers outlive the request scope.
-/// </summary>
 public partial class RateLimitEventLog
 {
     protected readonly IServiceScopeFactory _serviceScopeFactory;
@@ -124,7 +115,7 @@ public partial class RateLimitEventLog
     }
 
     /// <summary>
-    /// Writes one warning. A logging failure is swallowed so a 429 cannot become a 500 and an outbound call cannot fail because the log is down.
+    /// Writes one warning. A logging failure is swallowed.
     /// </summary>
     public virtual async Task WriteAsync(RateLimitEvent rateLimitEvent)
     {
@@ -139,7 +130,6 @@ public partial class RateLimitEventLog
         }
         catch
         {
-            // A logging failure must not turn a 429 into a 500 or fail an outbound call.
         }
     }
 }

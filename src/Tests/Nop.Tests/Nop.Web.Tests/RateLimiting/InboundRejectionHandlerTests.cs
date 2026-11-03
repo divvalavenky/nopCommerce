@@ -63,7 +63,7 @@ public class InboundRateLimitPolicyTests
     }
 
     [Test]
-    public void Global_limiter_partitions_by_host_and_prefers_an_authenticated_name()
+    public void Global_limiter_partitions_by_host_only()
     {
         var policy = InboundRateLimitPolicy.FromConfig(new CommonConfig
         {
@@ -81,7 +81,7 @@ public class InboundRateLimitPolicyTests
         first.IsAcquired.Should().BeTrue();
         second.IsAcquired.Should().BeFalse();
         otherHost.IsAcquired.Should().BeTrue();
-        named.IsAcquired.Should().BeTrue();
+        named.IsAcquired.Should().BeFalse();
     }
 
     private static DefaultHttpContext Http(string host, string userName = null)

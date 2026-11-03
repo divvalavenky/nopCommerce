@@ -4,14 +4,9 @@ namespace Nop.Web.Framework.RateLimiting;
 
 /// <summary>
 /// Retries throttled outbound calls. Transport exceptions propagate unchanged.
-/// Decisions come from <see cref="OutboundRetryPolicy.Decide"/>. This type only sends, waits, and logs.
 /// </summary>
 public partial class RateLimitRetryHandler : DelegatingHandler
 {
-    /// <summary>
-    /// Bodies larger than this, and bodies with no known length, are sent once.
-    /// Buffering them would copy a stream that cannot be read twice, or hold a large body for every attempt.
-    /// </summary>
     public const long MaxBufferedBodyBytes = 1024 * 1024;
 
     protected readonly OutboundRetryPolicy _policy;
@@ -37,7 +32,6 @@ public partial class RateLimitRetryHandler : DelegatingHandler
         if (request.Content is not null and not ByteArrayContent)
             await request.Content.LoadIntoBufferAsync(MaxBufferedBodyBytes, cancellationToken);
 
-        // Send this same message again. Cloning it would drop request options.
         var attempt = RetryAttempt.First;
         while (true)
         {

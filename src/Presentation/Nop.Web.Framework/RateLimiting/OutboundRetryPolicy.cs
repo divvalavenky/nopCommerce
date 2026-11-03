@@ -23,18 +23,12 @@ public readonly record struct RetryAttempt
     public RetryAttempt Next() => new(Number + 1);
 }
 
-/// <summary>
-/// What one HTTP response says about throttling. Parsed once at the HTTP boundary.
-/// </summary>
 public abstract record Throttle
 {
     private Throttle()
     {
     }
 
-    /// <summary>
-    /// Not a throttling response. This includes 503 without Retry-After, and 503 on a non-idempotent method.
-    /// </summary>
     public sealed record None : Throttle
     {
         public static None Instance { get; } = new();
@@ -83,9 +77,6 @@ public enum GiveUpReason
     RetryAfterTooLong
 }
 
-/// <summary>
-/// Closed set of transitions out of one response.
-/// </summary>
 public abstract record RetryDecision
 {
     private RetryDecision()
@@ -123,7 +114,6 @@ public sealed record OutboundRetryPolicy
 
     /// <summary>
     /// A Retry-After above this is not waited out, even when <see cref="MaxDelay"/> is larger.
-    /// A multi-minute server hint must not pin the calling thread.
     /// </summary>
     public static readonly TimeSpan RetryAfterHonorLimit = TimeSpan.FromSeconds(60);
 
@@ -169,9 +159,6 @@ public sealed record OutboundRetryPolicy
             TimeSpan.FromMilliseconds(maxMilliseconds));
     }
 
-    /// <summary>
-    /// Pure transition. <paramref name="jitterSample"/> is in [0, 1) and is supplied by the caller so tests stay deterministic.
-    /// </summary>
     public RetryDecision Decide(RetryAttempt attempt, Throttle throttle, double jitterSample)
     {
         if (throttle is not Throttle.Limited limited)
@@ -188,12 +175,9 @@ public sealed record OutboundRetryPolicy
                 : new RetryDecision.Wait(retryAfter, attempt.Next());
         }
 
-        return new RetryDecision.Wait(BackoffDelay(attempt, jitterSample), attempt.Next());
+        return new RetryDecision.Wait(BackoffDelay(attempt, Math.Clamp(jitterSample, 0d, 1d)), attempt.Next());
     }
 
-    /// <summary>
-    /// Equal jitter. The wait is never below half the exponential step and never above <see cref="MaxDelay"/>.
-    /// </summary>
     private TimeSpan BackoffDelay(RetryAttempt attempt, double jitterSample)
     {
         var step = BaseDelay;
