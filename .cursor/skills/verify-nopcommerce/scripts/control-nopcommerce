@@ -1,0 +1,704 @@
+#!/usr/bin/env python3
+"""Control plane for verify-nopcommerce: launch, doctor, install, drive, evidence, cleanup."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+ARTIFACTS = SKILL_ROOT / "artifacts"
+VERIFY_HOME = Path(os.environ.get("NOP_VERIFY_HOME", "/tmp/nopcommerce-verify"))
+PUBLISH_DIR = VERIFY_HOME / "publish"
+RUNS_DIR = VERIFY_HOME / "runs"
+DEFAULT_PORT = int(os.environ.get("NOP_VERIFY_PORT", "5055"))
+PG_USER = os.environ.get("NOP_VERIFY_PG_USER", "nopcommerce")
+PG_PASSWORD = os.environ.get("NOP_VERIFY_PG_PASSWORD", "nopcommerce")
+PG_HOST = os.environ.get("NOP_VERIFY_PG_HOST", "127.0.0.1")
+ADMIN_EMAIL = os.environ.get("NOP_VERIFY_ADMIN_EMAIL", "admin@yourStore.com")
+ADMIN_PASSWORD = os.environ.get("NOP_VERIFY_ADMIN_PASSWORD", "Verify_Pass_123")
+CHROME = os.environ.get("NOP_VERIFY_CHROME", "/usr/local/bin/google-chrome")
+
+
+def die(msg: str, code: int = 1) -> None:
+    print(f"error: {msg}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def state_path(run_id: str) -> Path:
+    return RUNS_DIR / run_id / "state.json"
+
+
+def load_state(run_id: str) -> dict:
+    path = state_path(run_id)
+    if not path.exists():
+        die(f"no state for run {run_id}; launch first")
+    return json.loads(path.read_text())
+
+
+def save_state(run_id: str, state: dict) -> None:
+    path = state_path(run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2) + "\n")
+
+
+def http_get(url: str, timeout: float = 10.0, *, soft: bool = False) -> tuple[int, str]:
+    req = urllib.request.Request(url, headers={"User-Agent": "control-nopcommerce/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            return resp.status, body
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return exc.code, body
+    except Exception as exc:  # noqa: BLE001
+        if soft:
+            return 0, str(exc)
+        die(f"HTTP GET {url} failed: {exc}")
+
+
+def ensure_postgres() -> None:
+    ready = subprocess.run(["pg_isready", "-h", PG_HOST], capture_output=True, text=True)
+    if ready.returncode != 0:
+        subprocess.run(["sudo", "service", "postgresql", "start"], check=False)
+        for _ in range(30):
+            if subprocess.run(["pg_isready", "-h", PG_HOST], capture_output=True).returncode == 0:
+                break
+            time.sleep(1)
+        else:
+            die("PostgreSQL is not ready")
+
+    subprocess.run(
+        ["sudo", "-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-c",
+         f"""DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{PG_USER}') THEN
+    CREATE ROLE {PG_USER} LOGIN PASSWORD '{PG_PASSWORD}' CREATEDB;
+  ELSE
+    ALTER ROLE {PG_USER} WITH LOGIN PASSWORD '{PG_PASSWORD}' CREATEDB;
+  END IF;
+END
+$$;"""],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def ensure_publish(*, force: bool = False) -> None:
+    dll = PUBLISH_DIR / "Nop.Web.dll"
+    plugins_dir = PUBLISH_DIR / "Plugins"
+    plugin_ok = plugins_dir.exists() and any(p.is_dir() and p.name != "Uploaded" for p in plugins_dir.iterdir())
+    if dll.exists() and plugin_ok and not force:
+        return
+    print("building solution + publishing Nop.Web (cached under /tmp/nopcommerce-verify/publish)…", flush=True)
+    PUBLISH_DIR.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1"
+    env["DOTNET_NOLOGO"] = "1"
+    # Full solution build copies plugin outputs into Presentation/Nop.Web/Plugins.
+    build = subprocess.run(
+        ["dotnet", "build", str(REPO_ROOT / "src/NopCommerce.sln"), "-c", "Release", "--verbosity", "minimal"],
+        env=env,
+    )
+    if build.returncode != 0:
+        die("dotnet build NopCommerce.sln failed")
+    if PUBLISH_DIR.exists():
+        shutil.rmtree(PUBLISH_DIR)
+    proc = subprocess.run(
+        [
+            "dotnet",
+            "publish",
+            str(REPO_ROOT / "src/Presentation/Nop.Web/Nop.Web.csproj"),
+            "-c",
+            "Release",
+            "-o",
+            str(PUBLISH_DIR),
+            "--verbosity",
+            "minimal",
+        ],
+        env=env,
+    )
+    plugin_ok = plugins_dir.exists() and any(p.is_dir() and p.name != "Uploaded" for p in plugins_dir.iterdir())
+    if proc.returncode != 0 or not dll.exists() or not plugin_ok:
+        die("dotnet publish failed or Plugins/ missing from publish output")
+
+
+def create_database(db_name: str) -> None:
+    sql = f"""
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+WHERE datname = '{db_name}' AND pid <> pg_backend_pid();
+DROP DATABASE IF EXISTS {db_name};
+CREATE DATABASE {db_name} OWNER {PG_USER};
+\\c {db_name}
+CREATE EXTENSION IF NOT EXISTS citext;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+"""
+    subprocess.run(
+        ["sudo", "-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1"],
+        input=sql,
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+
+
+def drop_database(db_name: str) -> None:
+    sql = f"""
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+WHERE datname = '{db_name}' AND pid <> pg_backend_pid();
+DROP DATABASE IF EXISTS {db_name};
+"""
+    subprocess.run(
+        ["sudo", "-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1"],
+        input=sql,
+        text=True,
+        check=False,
+        capture_output=True,
+    )
+
+
+def port_in_use(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def cmd_launch(args: argparse.Namespace) -> None:
+    run_id = args.run_id
+    port = args.port
+    if state_path(run_id).exists():
+        die(f"run {run_id} already exists; cleanup first or pick another --run-id")
+    if port_in_use(port):
+        die(f"port {port} is already in use; refuse to share a foreign listener")
+
+    ensure_postgres()
+    ensure_publish()
+
+    db_name = f"nopcommerce_v_{run_id.replace('-', '_')}"[:63]
+    create_database(db_name)
+
+    run_dir = RUNS_DIR / run_id
+    app_dir = run_dir / "app"
+    if app_dir.exists():
+        shutil.rmtree(app_dir)
+    print(f"copying publish → {app_dir}", flush=True)
+    shutil.copytree(PUBLISH_DIR, app_dir)
+    for rel in ("App_Data", "wwwroot", "logs", "bin", "Plugins"):
+        path = app_dir / rel
+        path.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(path, 0o775)
+        except OSError:
+            pass
+
+    # Fresh install: clear legacy dataSettings and blank the ConnectionStrings section.
+    legacy = app_dir / "App_Data" / "dataSettings.json"
+    if legacy.exists():
+        legacy.unlink()
+    settings_path = app_dir / "App_Data" / "appsettings.json"
+    if settings_path.exists():
+        try:
+            cfg = json.loads(settings_path.read_text(encoding="utf-8-sig"))
+            cs = cfg.get("ConnectionStrings") or {}
+            cs["ConnectionString"] = ""
+            cs["DataProvider"] = "sqlserver"
+            cfg["ConnectionStrings"] = cs
+            settings_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+        except json.JSONDecodeError:
+            pass
+
+    log_path = run_dir / "app.log"
+    env = os.environ.copy()
+    env.update(
+        {
+            "ASPNETCORE_ENVIRONMENT": "Development",
+            "ASPNETCORE_URLS": f"http://127.0.0.1:{port}",
+            "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+            "DOTNET_NOLOGO": "1",
+        }
+    )
+    with open(log_path, "w", encoding="utf-8") as log:
+        proc = subprocess.Popen(
+            ["dotnet", "Nop.Web.dll"],
+            cwd=str(app_dir),
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+    url = f"http://127.0.0.1:{port}"
+    state = {
+        "run_id": run_id,
+        "pid": proc.pid,
+        "port": port,
+        "url": url,
+        "app_dir": str(app_dir),
+        "db_name": db_name,
+        "log_path": str(log_path),
+        "owned_by": "verify-nopcommerce",
+        "installed": False,
+        "admin_email": ADMIN_EMAIL,
+    }
+    save_state(run_id, state)
+
+    ready = False
+    for _ in range(90):
+        if proc.poll() is not None:
+            die(f"app exited early; see {log_path}")
+        try:
+            code, body = http_get(f"{url}/install", timeout=3, soft=True)
+            if code == 200 and "nopCommerce installation" in body:
+                ready = True
+                break
+        except SystemExit:
+            pass
+        time.sleep(1)
+    if not ready:
+        die(f"install page never became ready; see {log_path}")
+
+    print(json.dumps({"ok": True, "run_id": run_id, "url": url, "db_name": db_name, "pid": proc.pid}))
+
+
+def connection_configured(app_dir: str | Path) -> bool:
+    """True when App_Data/appsettings.json has a non-empty ConnectionString (post-install)."""
+    path = Path(app_dir) / "App_Data" / "appsettings.json"
+    if not path.exists():
+        return False
+    try:
+        cfg = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError:
+        return False
+    cs = cfg.get("ConnectionStrings") or {}
+    return bool(cs.get("ConnectionString"))
+
+
+def connection_string(app_dir: str | Path) -> str:
+    path = Path(app_dir) / "App_Data" / "appsettings.json"
+    if not path.exists():
+        return ""
+    try:
+        cfg = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError:
+        return ""
+    return (cfg.get("ConnectionStrings") or {}).get("ConnectionString") or ""
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    state = load_state(args.run_id)
+    pid = state["pid"]
+    try:
+        os.kill(pid, 0)
+        alive = True
+    except OSError:
+        alive = False
+    if not alive:
+        die(f"pid {pid} is not running")
+
+    cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode(errors="replace")
+    if "Nop.Web.dll" not in cmdline:
+        die(f"pid {pid} is not Nop.Web.dll ({cmdline!r})")
+
+    url = state["url"]
+    actually_installed = connection_configured(state["app_dir"])
+    code, body = http_get(url if actually_installed else f"{url}/install")
+
+    issues = []
+    if state.get("owned_by") != "verify-nopcommerce":
+        issues.append("state.owned_by mismatch")
+    if actually_installed != bool(state.get("installed")):
+        issues.append(f"installed flag mismatch (state={state.get('installed')} file={actually_installed})")
+    if actually_installed:
+        conn = connection_string(state["app_dir"])
+        if state["db_name"] not in conn:
+            issues.append(f"ConnectionString does not mention {state['db_name']}")
+        code2, body2 = http_get(url)
+        if "header-logo" not in body2 and "item-box" not in body2 and "search-box" not in body2:
+            issues.append(f"homepage look unhealthy status={code2}")
+    else:
+        if "nopCommerce installation" not in body:
+            issues.append("expected install page before install")
+
+    result = {
+        "ok": not issues,
+        "run_id": state["run_id"],
+        "pid": pid,
+        "url": url,
+        "installed": actually_installed,
+        "db_name": state["db_name"],
+        "issues": issues,
+    }
+    print(json.dumps(result, indent=2))
+    if issues:
+        raise SystemExit(2)
+
+
+def playwright_browser():
+    from playwright.sync_api import sync_playwright
+
+    return sync_playwright()
+
+
+def launch_browser(p):
+    return p.chromium.launch(
+        executable_path=CHROME if Path(CHROME).exists() else None,
+        headless=True,
+        args=["--no-sandbox", "--disable-dev-shm-usage"],
+    )
+
+
+def start_app_process(state: dict) -> int:
+    """Start (or restart) Nop.Web.dll for an existing run directory. Returns new PID."""
+    app_dir = Path(state["app_dir"])
+    log_path = Path(state["log_path"])
+    port = state["port"]
+    env = os.environ.copy()
+    env.update(
+        {
+            "ASPNETCORE_ENVIRONMENT": "Development",
+            "ASPNETCORE_URLS": f"http://127.0.0.1:{port}",
+            "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+            "DOTNET_NOLOGO": "1",
+        }
+    )
+    with open(log_path, "a", encoding="utf-8") as log:
+        log.write(f"\n--- relaunch {time.strftime('%Y-%m-%dT%H:%M:%SZ')} ---\n")
+        proc = subprocess.Popen(
+            ["dotnet", "Nop.Web.dll"],
+            cwd=str(app_dir),
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    state["pid"] = proc.pid
+    return proc.pid
+
+
+def wait_for_storefront(url: str, timeout: float = 180.0) -> str:
+    deadline = time.time() + timeout
+    last_err = ""
+    while time.time() < deadline:
+        try:
+            code, body = http_get(url, timeout=5, soft=True)
+            if code == 200 and "nopCommerce installation" not in body and (
+                "header-logo" in body or "item-box" in body or "search-box" in body
+            ):
+                return body
+            last_err = f"status={code} body={body[:120]}"
+        except SystemExit as exc:
+            last_err = str(exc)
+        time.sleep(2)
+    die(f"storefront not ready at {url}: {last_err}")
+
+
+def cmd_install(args: argparse.Namespace) -> None:
+    state = load_state(args.run_id)
+    if state.get("installed"):
+        die("already installed for this run")
+    url = state["url"]
+    db_name = state["db_name"]
+    pid = state["pid"]
+
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = launch_browser(p)
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page.goto(f"{url}/install", wait_until="domcontentloaded", timeout=60000)
+        page.fill("#AdminEmail", ADMIN_EMAIL)
+        page.fill("#AdminPassword", ADMIN_PASSWORD)
+        page.fill("#ConfirmPassword", ADMIN_PASSWORD)
+        if page.locator("#InstallSampleData").count():
+            page.check("#InstallSampleData")
+        if page.locator("#SubscribeNewsletters").count():
+            page.uncheck("#SubscribeNewsletters")
+        page.select_option("#DataProvider", value="3")  # PostgreSQL
+        page.wait_for_timeout(400)
+        if page.locator("#CreateDatabaseIfNotExists").count() and page.is_checked("#CreateDatabaseIfNotExists"):
+            page.uncheck("#CreateDatabaseIfNotExists")
+        page.fill("#ServerName", PG_HOST)
+        page.fill("#DatabaseName", db_name)
+        if page.locator("#IntegratedSecurity").count() and not page.is_disabled("#IntegratedSecurity"):
+            if page.is_checked("#IntegratedSecurity"):
+                page.uncheck("#IntegratedSecurity")
+        page.fill("#Username", PG_USER)
+        page.fill("#Password", PG_PASSWORD)
+
+        # Sample-data install can take several minutes. Success persists ConnectionString into
+        # App_Data/appsettings.json, then RestartApplication stops the host process.
+        page.click("button.btn-install")
+        deadline = time.time() + 600
+        saw_settings = False
+        while time.time() < deadline:
+            if connection_configured(state["app_dir"]):
+                saw_settings = True
+                break
+            err = page.locator(".message-error li, .validation-summary-errors li")
+            if err.count():
+                throbber_visible = False
+                try:
+                    throbber_visible = page.locator(".throbber").is_visible()
+                except Exception:  # noqa: BLE001
+                    pass
+                if not throbber_visible:
+                    msgs = [err.nth(i).inner_text() for i in range(min(err.count(), 5))]
+                    body_preview = page.content()
+                    if "Setup failed" in body_preview or msgs:
+                        browser.close()
+                        die(f"install form errors: {msgs}")
+            time.sleep(2)
+        if not saw_settings:
+            browser.close()
+            die(f"ConnectionString never persisted; see {state['log_path']}")
+
+        # Allow the in-page restart AJAX to stop the process, then close the browser.
+        time.sleep(5)
+        browser.close()
+
+    # RestartApplication calls StopApplication — relaunch if the process exited.
+    dead = False
+    try:
+        os.kill(pid, 0)
+        # Process still up; wait a bit more for stop, else leave it.
+        for _ in range(30):
+            try:
+                os.kill(pid, 0)
+                time.sleep(1)
+            except OSError:
+                dead = True
+                break
+    except OSError:
+        dead = True
+
+    if dead or not port_in_use(state["port"]):
+        new_pid = start_app_process(state)
+        save_state(args.run_id, state)
+        print(f"relaunched pid={new_pid}", flush=True)
+    else:
+        save_state(args.run_id, state)
+
+    body = wait_for_storefront(url, timeout=180)
+    art = ARTIFACTS / args.run_id / "install"
+    art.mkdir(parents=True, exist_ok=True)
+    (art / "homepage.html").write_text(body, encoding="utf-8")
+
+    # Screenshot via a fresh browser session against the relaunched host
+    from playwright.sync_api import sync_playwright as sp
+
+    with sp() as p:
+        browser = launch_browser(p)
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        page.screenshot(path=str(art / "homepage.png"), full_page=True)
+        (art / "homepage.html").write_text(page.content(), encoding="utf-8")
+        browser.close()
+
+    state["installed"] = True
+    state["admin_email"] = ADMIN_EMAIL
+    save_state(args.run_id, state)
+    print(json.dumps({"ok": True, "run_id": args.run_id, "url": url, "artifacts": str(art)}))
+
+
+def cmd_browser(args: argparse.Namespace) -> None:
+    state = load_state(args.run_id)
+    if not state.get("installed") and args.action not in {"goto", "screenshot", "content"}:
+        # allow raw goto for pre-install debugging
+        pass
+
+    from playwright.sync_api import sync_playwright
+
+    url = state["url"]
+    with sync_playwright() as p:
+        browser = launch_browser(p)
+        context = browser.new_context(viewport={"width": 1400, "height": 900})
+        # Persist cookies across a single command only; recipes chain via storage if provided
+        storage = Path(args.storage) if args.storage else None
+        if storage and storage.exists():
+            context = browser.new_context(storage_state=str(storage), viewport={"width": 1400, "height": 900})
+        page = context.new_page()
+
+        if args.action == "goto":
+            target = args.url if args.url.startswith("http") else url.rstrip("/") + args.url
+            page.goto(target, wait_until="domcontentloaded", timeout=60000)
+            print(json.dumps({"ok": True, "url": page.url, "title": page.title()}))
+        elif args.action == "search":
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.fill('input.search-box-text', args.query)
+            page.click("button.search-box-button")
+            page.wait_for_load_state("domcontentloaded")
+            # search results page
+            html = page.content()
+            found = args.expect in html if args.expect else True
+            art = ARTIFACTS / args.run_id / "search"
+            art.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(art / "results.png"), full_page=True)
+            (art / "results.html").write_text(html, encoding="utf-8")
+            print(json.dumps({"ok": found, "url": page.url, "expect": args.expect, "artifacts": str(art)}))
+            if not found:
+                raise SystemExit(3)
+        elif args.action == "open-product":
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.get_by_role("link", name=args.name, exact=False).first.click()
+            page.wait_for_load_state("domcontentloaded")
+            art = ARTIFACTS / args.run_id / "product"
+            art.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(art / "details.png"), full_page=True)
+            (art / "details.html").write_text(page.content(), encoding="utf-8")
+            ok = args.name.split()[0].lower() in page.content().lower()
+            print(json.dumps({"ok": ok, "url": page.url, "artifacts": str(art)}))
+            if not ok:
+                raise SystemExit(3)
+        elif args.action == "add-to-cart-simple":
+            # Opens a simple product by name and clicks add to cart
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.get_by_role("link", name=args.name, exact=False).first.click()
+            page.wait_for_load_state("domcontentloaded")
+            page.locator("button.add-to-cart-button, button.product-box-add-to-cart-button").first.click()
+            page.wait_for_timeout(1500)
+            page.goto(url.rstrip("/") + "/cart", wait_until="domcontentloaded", timeout=60000)
+            html = page.content()
+            art = ARTIFACTS / args.run_id / "cart"
+            art.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(art / "cart.png"), full_page=True)
+            (art / "cart.html").write_text(html, encoding="utf-8")
+            ok = args.name.split()[0].lower() in html.lower() and ("shopping-cart" in html or "cart" in page.url)
+            print(json.dumps({"ok": ok, "url": page.url, "artifacts": str(art)}))
+            if not ok:
+                raise SystemExit(3)
+        elif args.action == "admin-login":
+            page.goto(url.rstrip("/") + "/login?returnUrl=%2Fadmin", wait_until="domcontentloaded", timeout=60000)
+            page.fill("#Email", args.email or state.get("admin_email") or ADMIN_EMAIL)
+            page.fill("#Password", args.password or ADMIN_PASSWORD)
+            page.click("button.login-button")
+            page.wait_for_load_state("domcontentloaded")
+            # may land on admin
+            deadline = time.time() + 30
+            while time.time() < deadline:
+                if "/admin" in page.url.lower() or page.locator(".navbar-nav, .content-header, #nopSideBarMenus").count():
+                    break
+                page.wait_for_timeout(500)
+            art = ARTIFACTS / args.run_id / "admin-login"
+            art.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(art / "admin.png"), full_page=True)
+            (art / "admin.html").write_text(page.content(), encoding="utf-8")
+            ok = "/admin" in page.url.lower() or "Dashboard" in page.content() or "nop-commerce" in page.content().lower()
+            if storage:
+                context.storage_state(path=str(storage))
+            print(json.dumps({"ok": ok, "url": page.url, "artifacts": str(art)}))
+            if not ok:
+                raise SystemExit(3)
+        elif args.action == "screenshot":
+            target = args.url if args.url.startswith("http") else url.rstrip("/") + (args.url or "/")
+            page.goto(target, wait_until="domcontentloaded", timeout=60000)
+            out = Path(args.path) if args.path else ARTIFACTS / args.run_id / "screenshot.png"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(out), full_page=True)
+            print(json.dumps({"ok": True, "path": str(out), "url": page.url}))
+        elif args.action == "content":
+            target = args.url if args.url.startswith("http") else url.rstrip("/") + (args.url or "/")
+            page.goto(target, wait_until="domcontentloaded", timeout=60000)
+            text = page.inner_text("body")
+            if args.expect and args.expect not in page.content():
+                print(json.dumps({"ok": False, "url": page.url}))
+                raise SystemExit(3)
+            print(json.dumps({"ok": True, "url": page.url, "title": page.title(), "text_preview": text[:500]}))
+        else:
+            die(f"unknown browser action {args.action}")
+
+        browser.close()
+
+
+def cmd_cleanup(args: argparse.Namespace) -> None:
+    path = state_path(args.run_id)
+    if not path.exists():
+        print(json.dumps({"ok": True, "note": "nothing to clean"}))
+        return
+    state = json.loads(path.read_text())
+    pid = state.get("pid")
+    if pid:
+        try:
+            os.kill(pid, 0)
+            os.kill(pid, signal.SIGTERM)
+            for _ in range(20):
+                try:
+                    os.kill(pid, 0)
+                    time.sleep(0.5)
+                except OSError:
+                    break
+            else:
+                os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    if state.get("db_name") and not args.keep_db:
+        drop_database(state["db_name"])
+    run_dir = RUNS_DIR / args.run_id
+    if run_dir.exists() and not args.keep_app:
+        shutil.rmtree(run_dir, ignore_errors=True)
+    # Never delete ARTIFACTS
+    print(json.dumps({"ok": True, "run_id": args.run_id, "artifacts_kept": str(ARTIFACTS / args.run_id)}))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="control-nopcommerce")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    launch = sub.add_parser("launch", help="Start an isolated nopCommerce instance")
+    launch.add_argument("--run-id", required=True)
+    launch.add_argument("--port", type=int, default=DEFAULT_PORT)
+    launch.set_defaults(func=cmd_launch)
+
+    doctor = sub.add_parser("doctor", help="Read-only health check for a verification instance")
+    doctor.add_argument("--run-id", required=True)
+    doctor.set_defaults(func=cmd_doctor)
+
+    install = sub.add_parser("install", help="Run the install wizard with sample data on PostgreSQL")
+    install.add_argument("--run-id", required=True)
+    install.set_defaults(func=cmd_install)
+
+    browser = sub.add_parser("browser", help="Drive the storefront/admin with Playwright")
+    browser.add_argument("--run-id", required=True)
+    browser.add_argument(
+        "action",
+        choices=["goto", "search", "open-product", "add-to-cart-simple", "admin-login", "screenshot", "content"],
+    )
+    browser.add_argument("--url", default="/")
+    browser.add_argument("--query", default="")
+    browser.add_argument("--name", default="")
+    browser.add_argument("--expect", default="")
+    browser.add_argument("--email", default="")
+    browser.add_argument("--password", default="")
+    browser.add_argument("--path", default="")
+    browser.add_argument("--storage", default="")
+    browser.set_defaults(func=cmd_browser)
+
+    cleanup = sub.add_parser("cleanup", help="Stop the instance and drop its DB; keep artifacts")
+    cleanup.add_argument("--run-id", required=True)
+    cleanup.add_argument("--keep-db", action="store_true")
+    cleanup.add_argument("--keep-app", action="store_true")
+    cleanup.set_defaults(func=cmd_cleanup)
+
+    return p
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

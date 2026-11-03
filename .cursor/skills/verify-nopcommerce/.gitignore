@@ -1,0 +1,4 @@
+artifacts/**
+!artifacts/.gitkeep
+scripts/__pycache__/
+*.pyc
