@@ -96,7 +96,7 @@ Read `features/README.md` then the matching feature file before claiming a path 
 
 ## Evidence
 
-Proof root: `.cursor/skills/verify-nopcommerce/artifacts/<run-id>/` (gitignored; survives `cleanup`).
+Proof root: `.cursor/skills/verify-nopcommerce/artifacts/<run-id>/` (gitignored; survives `cleanup`). A checked-in sample from the first proof run lives under `examples/proof1/` (homepage + MacBook search screenshots).
 
 Standards:
 
