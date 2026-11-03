@@ -396,7 +396,8 @@ public class AddNopRateLimitingTests
         services.AddNopRateLimiting(new CommonConfig { PermitLimit = 0 });
 
         using var provider = services.BuildServiceProvider();
-        provider.GetService<IOptions<RateLimiterOptions>>().Should().BeNull();
+        provider.GetService<InboundRejectionHandler>().Should().BeNull();
+        provider.GetService<IOptions<RateLimiterOptions>>()?.Value.GlobalLimiter.Should().BeNull();
         provider.GetRequiredService<RateLimitEventLog>().Should().NotBeNull();
     }
 

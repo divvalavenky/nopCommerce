@@ -203,7 +203,9 @@ public partial class TaskScheduler : ITaskScheduler
 
                 //send post data
                 var data = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("taskType", _scheduleTask.Type) });
-                await client.PostAsync(_scheduleTaskUrl, data);
+                using var request = new HttpRequestMessage(HttpMethod.Post, _scheduleTaskUrl) { Content = data };
+                request.Options.Set(NopHttpDefaults.SkipRateLimitRetry, true);
+                await client.SendAsync(request);
             }
             catch (Exception ex)
             {

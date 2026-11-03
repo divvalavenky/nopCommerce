@@ -6,13 +6,13 @@ using Nop.Core.Configuration;
 namespace Nop.Web.Framework.RateLimiting;
 
 /// <summary>
-/// Registers inbound rate limiting. The limiter is added only when <see cref="CommonConfig.PermitLimit"/> is positive.
+/// Registers inbound rate limiting and outbound 429 retry. Each half is registered only when its policy parses as enabled.
 /// Config is read once per process.
 /// </summary>
 public static class RateLimitingServiceCollectionExtensions
 {
     /// <summary>
-    /// Adds the rate-limit log writer and, when <see cref="CommonConfig.PermitLimit"/> is positive, the inbound limiter.
+    /// Adds the rate-limit log writer, the inbound limiter, and the outbound retry handler.
     /// </summary>
     public static void AddNopRateLimiting(this IServiceCollection services, CommonConfig config)
     {
@@ -21,19 +21,26 @@ public static class RateLimitingServiceCollectionExtensions
 
         services.AddSingleton<RateLimitEventLog>();
 
-        if (InboundRateLimitPolicy.FromConfig(config) is not { } inbound)
-            return;
-
-        services.TryAddSingleton(TimeProvider.System);
-        services.AddSingleton(inbound);
-        services.AddSingleton<InboundRejectionHandler>();
-        services.AddRateLimiter(options =>
+        if (InboundRateLimitPolicy.FromConfig(config) is { } inbound)
         {
-            options.GlobalLimiter = inbound.CreateGlobalLimiter();
-            options.RejectionStatusCode = inbound.RejectionStatusCode;
-            options.OnRejected = (context, token) => new ValueTask(context.HttpContext.RequestServices
-                .GetRequiredService<InboundRejectionHandler>()
-                .HandleAsync(context, token));
-        });
+            services.TryAddSingleton(TimeProvider.System);
+            services.AddSingleton(inbound);
+            services.AddSingleton<InboundRejectionHandler>();
+            services.AddRateLimiter(options =>
+            {
+                options.GlobalLimiter = inbound.CreateGlobalLimiter();
+                options.RejectionStatusCode = inbound.RejectionStatusCode;
+                options.OnRejected = (context, token) => new ValueTask(context.HttpContext.RequestServices
+                    .GetRequiredService<InboundRejectionHandler>()
+                    .HandleAsync(context, token));
+            });
+        }
+
+        if (OutboundRetryPolicy.FromConfig(config) is { } outbound)
+        {
+            services.AddSingleton(outbound);
+            services.AddTransient<RateLimitRetryHandler>();
+            services.ConfigureHttpClientDefaults(builder => builder.AddHttpMessageHandler<RateLimitRetryHandler>());
+        }
     }
 }

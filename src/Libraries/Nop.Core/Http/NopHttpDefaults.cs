@@ -19,4 +19,10 @@ public static partial class NopHttpDefaults
     /// Gets the name of a request item that stores the value that indicates whether the request is being redirected by the generic route transformer
     /// </summary>
     public static string GenericRouteInternalRedirect => "nop.RedirectFromGenericPathRoute";
+
+    /// <summary>
+    /// Request option that disables rate-limit retry for one call.
+    /// Calls back into this store set it, because a retry would compete with the store's own inbound limiter.
+    /// </summary>
+    public static HttpRequestOptionsKey<bool> SkipRateLimitRetry { get; } = new("nop.SkipRateLimitRetry");
 }

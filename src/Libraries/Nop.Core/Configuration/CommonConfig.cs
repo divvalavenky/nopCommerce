@@ -72,4 +72,21 @@ public partial class CommonConfig : IConfig
     /// because the 400 and 404 status pages would replace a rate-limit response.
     /// </summary>
     public int RejectionStatusCode { get; set; } = 429;
+
+    /// <summary>
+    /// Total sends for one outbound request, including the first.
+    /// 1 or less turns retry off. Values above 5 are clamped to 5.
+    /// </summary>
+    public int OutboundRetryMaxAttempts { get; set; } = 3;
+
+    /// <summary>
+    /// Base delay, in milliseconds, for exponential backoff when the response has no Retry-After.
+    /// Values below 1 are treated as 1.
+    /// </summary>
+    public int OutboundRetryBaseDelayMilliseconds { get; set; } = 200;
+
+    /// <summary>
+    /// Cap, in milliseconds, on one exponential wait. A Retry-After is honored only up to the smaller of this cap and 60 seconds.
+    /// </summary>
+    public int OutboundRetryMaxDelayMilliseconds { get; set; } = 2000;
 }
