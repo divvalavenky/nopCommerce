@@ -84,7 +84,8 @@ public partial class CommonConfig : IConfig
     public int OutboundRetryBaseDelayMilliseconds { get; set; } = 200;
 
     /// <summary>
-    /// Cap, in milliseconds, on one exponential wait. A Retry-After is honored only up to the smaller of this cap and 60 seconds.
+    /// Cap, in milliseconds, on one exponential wait when the response has no Retry-After.
+    /// A Retry-After header is honored up to 60 seconds regardless of this value.
     /// </summary>
     public int OutboundRetryMaxDelayMilliseconds { get; set; } = 2000;
 }

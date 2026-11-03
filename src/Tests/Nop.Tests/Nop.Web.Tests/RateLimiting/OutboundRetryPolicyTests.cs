@@ -76,19 +76,21 @@ public class OutboundRetryPolicyTests
     }
 
     [Test]
-    public void Decide_gives_up_when_retry_after_exceeds_the_shorter_of_max_delay_and_60_seconds()
+    public void Decide_honors_retry_after_up_to_60_seconds_even_when_max_delay_is_shorter()
     {
-        var shortCap = Policy(4, 200, 2000);
-        shortCap.Decide(RetryAttempt.First, Limited(TimeSpan.FromMilliseconds(2000)), 0)
-            .Should().Be(new RetryDecision.Wait(TimeSpan.FromMilliseconds(2000), new RetryAttempt(2)));
-        shortCap.Decide(RetryAttempt.First, Limited(TimeSpan.FromMilliseconds(2001)), 0)
+        var shortBackoffCap = Policy(4, 200, 2000);
+        shortBackoffCap.Decide(RetryAttempt.First, Limited(TimeSpan.FromSeconds(30)), 0)
+            .Should().Be(new RetryDecision.Wait(TimeSpan.FromSeconds(30), new RetryAttempt(2)));
+        shortBackoffCap.Decide(RetryAttempt.First, Limited(TimeSpan.FromSeconds(60)), 0)
+            .Should().Be(new RetryDecision.Wait(TimeSpan.FromSeconds(60), new RetryAttempt(2)));
+        shortBackoffCap.Decide(RetryAttempt.First, Limited(TimeSpan.FromSeconds(61)), 0)
             .Should().BeOfType<RetryDecision.GiveUp>()
             .Which.Reason.Should().Be(GiveUpReason.RetryAfterTooLong);
 
-        var longCap = Policy(4, 200, 90_000);
-        longCap.Decide(RetryAttempt.First, Limited(TimeSpan.FromSeconds(60)), 0.5)
+        var longBackoffCap = Policy(4, 200, 90_000);
+        longBackoffCap.Decide(RetryAttempt.First, Limited(TimeSpan.FromSeconds(60)), 0.5)
             .Should().Be(new RetryDecision.Wait(TimeSpan.FromSeconds(60), new RetryAttempt(2)));
-        longCap.Decide(RetryAttempt.First, Limited(TimeSpan.FromSeconds(61)), 0.5)
+        longBackoffCap.Decide(RetryAttempt.First, Limited(TimeSpan.FromSeconds(61)), 0.5)
             .Should().BeOfType<RetryDecision.GiveUp>()
             .Which.Reason.Should().Be(GiveUpReason.RetryAfterTooLong);
     }

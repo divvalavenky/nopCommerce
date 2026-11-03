@@ -169,8 +169,8 @@ public sealed record OutboundRetryPolicy
 
         if (limited.RetryAfter is TimeSpan retryAfter)
         {
-            var ceiling = MaxDelay < RetryAfterHonorLimit ? MaxDelay : RetryAfterHonorLimit;
-            return retryAfter > ceiling
+            // Header waits use RetryAfterHonorLimit only. MaxDelay caps exponential backoff when no header is present.
+            return retryAfter > RetryAfterHonorLimit
                 ? new RetryDecision.GiveUp(GiveUpReason.RetryAfterTooLong, attempt, limited, MaxAttempts)
                 : new RetryDecision.Wait(retryAfter, attempt.Next());
         }
