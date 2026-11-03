@@ -68,6 +68,8 @@ public partial class CommonConfig : IConfig
 
     /// <summary>
     /// Default status code to set on the response when a request is rejected.
+    /// 400, 404, and values outside 400-599 are coerced to 429 when the limiter is built,
+    /// because the 400 and 404 status pages would replace a rate-limit response.
     /// </summary>
-    public int RejectionStatusCode { get; set; } = 503;
+    public int RejectionStatusCode { get; set; } = 429;
 }
