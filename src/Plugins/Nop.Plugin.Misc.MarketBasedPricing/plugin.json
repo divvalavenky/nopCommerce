@@ -1,0 +1,11 @@
+{
+  "Group": "Misc",
+  "FriendlyName": "Market-based pricing",
+  "SystemName": "Misc.MarketBasedPricing",
+  "Version": "5.10.0",
+  "SupportedVersions": [ "5.10" ],
+  "Author": "nopCommerce community",
+  "DisplayOrder": 1,
+  "FileName": "Nop.Plugin.Misc.MarketBasedPricing.dll",
+  "Description": "Set product prices per geographic market (countries) and apply them in catalog and cart."
+}

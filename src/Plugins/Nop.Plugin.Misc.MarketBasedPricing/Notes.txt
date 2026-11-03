@@ -1,0 +1,2 @@
+Market-based pricing plugin (Misc.MarketBasedPricing).
+See docs/prd/market-based-pricing.md for scope and Alpha Must requirements.

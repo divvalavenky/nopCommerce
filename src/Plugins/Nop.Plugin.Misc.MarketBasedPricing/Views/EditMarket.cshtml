@@ -1,0 +1,142 @@
+@model MarketModel
+
+@{
+    Layout = "_AdminLayout";
+    ViewBag.PageTitle = Model.Name;
+}
+
+<form asp-controller="MarketBasedPricing" asp-action="EditMarket" method="post">
+    <div class="content-header clearfix">
+        <h1 class="float-left">
+            @Model.Name
+            <small>
+                <i class="fas fa-arrow-circle-left"></i>
+                <a asp-action="Configure">@T("Plugins.Misc.MarketBasedPricing.Markets.BackToList")</a>
+            </small>
+        </h1>
+        <div class="float-right">
+            <button type="submit" name="save" class="btn btn-primary">@T("Admin.Common.Save")</button>
+        </div>
+    </div>
+    @await Html.PartialAsync("~/Plugins/Misc.MarketBasedPricing/Views/_CreateOrUpdateMarket.cshtml", Model)
+</form>
+
+@if (Model.Id > 0)
+{
+    <div class="cards-group">
+        <div class="card card-default">
+            <div class="card-header">
+                @T("Plugins.Misc.MarketBasedPricing.ProductPrices")
+            </div>
+            <div class="card-body">
+                @await Html.PartialAsync("Table", new DataTablesModel
+                {
+                    Name = "market-prices-grid",
+                    UrlRead = new DataUrl("MarketProductPriceList", "MarketBasedPricing", null),
+                    UrlUpdate = new DataUrl("MarketProductPriceUpdate", "MarketBasedPricing", null),
+                    UrlDelete = new DataUrl("MarketProductPriceDelete", "MarketBasedPricing", null),
+                    Length = Model.MarketProductPriceSearchModel.PageSize,
+                    LengthMenu = Model.MarketProductPriceSearchModel.AvailablePageSizes,
+                    SearchButtonId = "search-prices",
+                    Filters = new List<FilterParameter>
+                    {
+                        new FilterParameter(nameof(MarketProductPriceSearchModel.MarketId), Model.Id)
+                    },
+                    ColumnCollection = new List<ColumnProperty>
+                    {
+                        new ColumnProperty(nameof(MarketProductPriceModel.ProductId))
+                        {
+                            Title = T("Plugins.Misc.MarketBasedPricing.Fields.ProductId").Text,
+                            Width = "100"
+                        },
+                        new ColumnProperty(nameof(MarketProductPriceModel.ProductName))
+                        {
+                            Title = T("Plugins.Misc.MarketBasedPricing.ProductName").Text
+                        },
+                        new ColumnProperty(nameof(MarketProductPriceModel.Price))
+                        {
+                            Title = T("Plugins.Misc.MarketBasedPricing.Fields.Price").Text,
+                            Width = "120",
+                            Editable = true,
+                            EditType = EditType.Number
+                        },
+                        new ColumnProperty(nameof(MarketProductPriceModel.Id))
+                        {
+                            Title = T("Admin.Common.Edit").Text,
+                            Width = "100",
+                            ClassName = NopColumnClassDefaults.Button,
+                            Render = new RenderButtonsInlineEdit()
+                        },
+                        new ColumnProperty(nameof(MarketProductPriceModel.Id))
+                        {
+                            Title = T("Admin.Common.Delete").Text,
+                            Width = "100",
+                            ClassName = NopColumnClassDefaults.Button,
+                            Render = new RenderButtonRemove(T("Admin.Common.Delete").Text)
+                        }
+                    }
+                })
+            </div>
+        </div>
+
+        <div class="card card-default">
+            <div class="card-header">
+                @T("Plugins.Misc.MarketBasedPricing.ProductPrices.AddNew")
+            </div>
+            <div class="card-body">
+                <div class="form-group row">
+                    <div class="col-md-3">
+                        <label>@T("Plugins.Misc.MarketBasedPricing.Fields.ProductId")</label>
+                    </div>
+                    <div class="col-md-9">
+                        <input type="number" id="add-product-id" class="form-control" min="1" />
+                    </div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-3">
+                        <label>@T("Plugins.Misc.MarketBasedPricing.Fields.Price")</label>
+                    </div>
+                    <div class="col-md-9">
+                        <input type="number" id="add-product-price" class="form-control" min="0" step="0.01" />
+                    </div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-9 offset-md-3">
+                        <button type="button" id="add-product-price-button" class="btn btn-primary">@T("Admin.Common.AddNew")</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        $(function () {
+            $('#add-product-price-button').on('click', function () {
+                var postData = {
+                    MarketId: @Model.Id,
+                    ProductId: $('#add-product-id').val(),
+                    Price: $('#add-product-price').val()
+                };
+                addAntiForgeryToken(postData);
+                $.ajax({
+                    cache: false,
+                    type: 'POST',
+                    url: '@Url.Action("MarketProductPriceAdd", "MarketBasedPricing")',
+                    data: postData,
+                    success: function (data) {
+                        if (data.Result) {
+                            updateTable('#market-prices-grid');
+                            $('#add-product-id').val('');
+                            $('#add-product-price').val('');
+                        } else if (data.Message) {
+                            alert(data.Message);
+                        }
+                    },
+                    error: function () {
+                        alert('Error');
+                    }
+                });
+            });
+        });
+    </script>
+}
