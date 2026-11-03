@@ -2,100 +2,147 @@
 **Project:** nopCommerce (open source) · **Author:** Venky Divvala · **Status:** Draft · **Date:** Nov 3, 2026
 
 ## 1. Summary
-Define the minimum storefront a merchant needs to sell online on nopCommerce: browse and search a catalog, add to cart, check out (ship or pick up), pay, and manage the order—plus the admin tools to run that loop day one.
+Ship the minimum e-commerce loop on nopCommerce: discover products, buy (guest or registered), pay, get confirmation, and fulfill—covering the core retail requirements every online store must satisfy on day one.
 
 ## 2. Problem
-- Merchants need a clear “open for business” bar; shipping a full platform dump without priorities delays launch.
-- Shoppers abandon when search, cart, or checkout feel incomplete or untrustworthy.
-- Ops staff need a single place to fulfill, refund, and answer “where is my order?” without custom tooling.
+- Merchants lack a prioritized “open for business” requirements bar; treating the whole platform as MVP delays launch.
+- Shoppers abandon when discovery, cart truthfulness, checkout, or payment trust break.
+- Ops cannot answer “where is my order?” or ship/refund without a clear order-management path.
 
 ## 3. Goals and non-goals
-**Goals**
-- Shoppers can discover products, purchase as guest or registered customer, and receive order confirmation.
-- Merchants can configure catalog, pricing, shipping/pickup, and at least one payment method per store.
-- Admins can process orders (status, shipments / ready-for-pickup, cancellations, basic refunds).
-- Storefront and transactional email copy are localizable; times shown in the store time zone.
+**Goals (e-commerce MVP)**
+- **Discover:** browse categories, search, open product detail with price, availability, and media.
+- **Transact:** cart → checkout (address, ship or pickup point) → pay → order confirmation.
+- **Account:** guest checkout and registered customers; order history for registered shoppers.
+- **Operate:** admin catalog publish, order processing, shipment / ready-for-pickup, basic refunds.
+- **Trust:** localizable UI and emails; money and times shown in store currency and time zone.
 
 **Non-goals (v1)**
-- Marketplace / multi-vendor commission workflows.
-- Native mobile apps (Web API / mobile plugins may exist; out of MVP scope).
-- Advanced personalization, A/B testing, or on-site merchandising AI.
-- Full RMA/self-service returns portal (admin-initiated refunds only in v1).
-- Scheduled delivery windows or pickup time slots (separate PRDs).
+- Marketplace / multi-vendor commissions.
+- Native mobile apps (existing Web API / mobile plugins are out of MVP scope).
+- Personalization, A/B testing, or merchandising AI.
+- Self-service RMA / returns portal (admin-initiated refunds only).
+- Scheduled delivery windows or pickup **time slots** (separate PRD; point pickup only if enabled).
 
 ## 4. Users
-- **Shopper:** finds products quickly, checks out with minimal friction, tracks the order.
-- **Store admin / owner:** configures catalog, tax, shipping, payments; monitors orders and revenue.
-- **Fulfillment staff:** marks shipments or pickup-ready; handles cancellations.
+- **Shopper:** finds products, checks out with low friction, trusts payment and order status.
+- **Store admin / owner:** configures catalog, tax, shipping, payments; monitors orders.
+- **Fulfillment staff:** ships or marks ready for pickup; handles cancel/refund basics.
 
-## 5. User stories
-1. As a shopper, I can search and filter the catalog and open a product detail page with price, stock, and images.
-2. As a shopper, I can add simple and attribute-based products to the cart and update quantities.
-3. As a shopper, I can check out as a guest or while logged in, enter addresses, and choose shipping or pick up in store.
-4. As a shopper, I can pay with an enabled payment method and land on a confirmation page with an order number.
-5. As a shopper, I receive an order-placed email and can view the order under My Account (registered) or via order details link policy the store uses.
-6. As an admin, I can create categories and products (including SKU, price, inventory) and publish them to the storefront.
-7. As an admin, I can enable shipping methods and/or pickup points and at least one payment provider.
-8. As staff, I can filter orders, change status, add a shipment or mark ready for pickup, and issue a refund for a paid order.
+## 5. User stories (by e-commerce domain)
+
+### Catalog & discovery
+1. As a shopper, I can browse categories and open a product page with price, stock state, and images.
+2. As a shopper, I can search published products and understand empty results.
+
+### Cart
+3. As a shopper, I can add simple and attribute-based products, change quantities, and see line and cart totals.
+
+### Checkout & fulfillment choice
+4. As a shopper, I can check out as guest or logged-in, enter billing/shipping addresses, and choose a shipping method or store pickup point.
+
+### Payments & confirmation
+5. As a shopper, I can pay with an enabled method, land on a confirmation page with an order number, and receive an order-placed email.
+
+### Customer account
+6. As a registered shopper, I can view my orders under My Account.
+
+### Admin merchandising
+7. As an admin, I can create categories and products (SKU, price, inventory, images) and publish/unpublish them.
+
+### Admin configuration
+8. As an admin, I can enable shipping and/or pickup points and at least one payment method per store.
+
+### Order operations
+9. As staff, I can find orders, update status, add a shipment or mark ready for pickup, and refund a paid order.
 
 ## 6. Functional requirements
+
+Requirements are grouped by e-commerce capability. Priority drives release sequencing (see §11).
+
+### A. Catalog & merchandising
 | ID | Requirement | Priority |
 |---|---|---|
-| FR1 | Catalog: categories, product details, stock visibility, and product images on the public store | Must |
-| FR2 | Search returns relevant published products; empty state is clear | Must |
-| FR3 | Shopping cart persists for the session (and for registered customers per platform rules); line price and totals visible | Must |
-| FR4 | Checkout supports guest and registered flows: billing/shipping address, shipping method or pickup point, payment, confirm | Must |
-| FR5 | At least one online payment method and one offline/manual method can be enabled per store | Must |
-| FR6 | Order is created atomically with payment result; confirmation page and `%Order.…%` email tokens for order-placed | Must |
-| FR7 | Admin catalog CRUD for categories/products; publish/unpublish | Must |
-| FR8 | Admin order list + detail: status, payment status, shipments / ready-for-pickup | Must |
-| FR9 | Multi-store aware settings for currency, tax display, and theme where the platform already supports overrides | Must |
-| FR10 | All new or merchant-facing MVP strings use localization resources | Must |
-| FR11 | Pick up in store via existing pickup provider when enabled (point selection only; no time slots) | Should |
-| FR12 | Discount codes / coupon entry on cart or checkout | Should |
+| FR1 | Public catalog: categories, product detail (price, stock visibility, images) for published products | Must |
+| FR2 | Product search over published catalog; clear empty state | Must |
+| FR7 | Admin CRUD for categories/products (SKU, price, inventory, media); publish/unpublish | Must |
+
+### B. Cart & session
+| ID | Requirement | Priority |
+|---|---|---|
+| FR3 | Cart persists for the session (and for registered customers per platform rules); line prices and totals visible | Must |
+| FR12 | Discount / coupon code entry on cart or checkout | Should |
 | FR13 | Wishlist for registered customers | Should |
-| FR14 | Basic PDF invoice / order summary from admin or customer account | Should |
+
+### C. Checkout, shipping, tax
+| ID | Requirement | Priority |
+|---|---|---|
+| FR4 | Checkout: guest + registered; billing/shipping address; shipping method **or** pickup point; payment; confirm | Must |
+| FR9 | Multi-store aware currency, tax display, and theme overrides where the platform already supports them | Must |
+| FR11 | Pick up in store via existing pickup provider when enabled (point selection only; no time slots) | Should |
+
+### D. Payments & order creation
+| ID | Requirement | Priority |
+|---|---|---|
+| FR5 | Per store: at least one online payment method and one offline/manual method can be enabled | Must |
+| FR6 | Order created consistently with payment result; confirmation page; order-placed email via `%Order.…%` tokens | Must |
+
+### E. Customer account & documents
+| ID | Requirement | Priority |
+|---|---|---|
+| FR10 | All merchant-facing MVP strings use localization resources | Must |
+| FR14 | Basic PDF invoice / order summary (admin and/or customer account) | Should |
+
+### F. Order management & fulfillment
+| ID | Requirement | Priority |
+|---|---|---|
+| FR8 | Admin order list + detail: order status, payment status, shipments / ready-for-pickup | Must |
+
+### G. Engagement & integrations (post-MVP stretch)
+| ID | Requirement | Priority |
+|---|---|---|
 | FR15 | Abandoned-cart reminder emails via existing reminder pipeline | Could |
-| FR16 | Product reviews moderated in admin | Could |
+| FR16 | Product reviews with admin moderation | Could |
 | FR17 | Webhooks or plugin events for order-paid integrations | Could |
 
 ## 7. Technical notes
-- Prefer **configuration and theme/store settings** over new plugins for MVP; add or extend plugins only when a Must cannot ship in core/admin already.
-- Payments and shipping stay behind existing provider interfaces (`IPaymentMethod`, shipping rate computation, `IPickupPointProvider`).
-- Orders, cart, and checkout remain in `Nop.Services` / `Nop.Web`; do not fork checkout into a one-off plugin for MVP.
-- Persist money and UTC timestamps per platform conventions; display in store currency and time zone.
-- Use FluentMigrator only if MVP introduces new tables; otherwise no schema change.
-- Caching: rely on existing catalog/cache invalidation; do not add long-lived cart caches that can oversell without inventory checks.
-- Feature flags: keep experimental Should/Could items behind settings defaulting off until Alpha Musts are green.
+- Prefer **configuration and existing core/admin** over new plugins; extend plugins only when a Must cannot ship otherwise.
+- Keep payments/shipping behind existing interfaces (`IPaymentMethod`, shipping rate computation, `IPickupPointProvider`).
+- Cart, checkout, and orders stay in `Nop.Services` / `Nop.Web`—do not fork checkout into a one-off MVP plugin.
+- Money and timestamps: platform conventions (store currency; UTC storage, store time zone display).
+- FluentMigrator only if new tables are required; MVP should avoid schema churn.
+- Inventory: use platform stock checks at add-to-cart and place-order; no new hold/reservation system in this PRD (contrast: pickup-slot PRD).
+- Gate experimental Should/Could behind settings defaulting **off** until Alpha Musts pass.
 
 ## 8. UX outline
-- **Home → category or search → product detail → add to cart → cart → checkout → confirm.**
-- Checkout steps stay aligned with current nopCommerce one-page or stepped checkout setting; show order totals, tax, and shipping before pay.
-- Out-of-stock: disable add-to-cart or show clear messaging per inventory settings.
-- Admin: Catalog and Sales menus cover day-one ops; payment/shipping configuration under Configuration.
-- Confirmation: “Order #… · Thank you” with email expectation in one short line.
+- Happy path: **Home → category or search → product detail → add to cart → cart → checkout → confirmation.**
+- Checkout follows the store’s one-page vs stepped setting; show merchandise, shipping, tax, and order total before pay.
+- Out of stock: block or warn per inventory settings—never silent oversell in the UI.
+- Admin day-one: **Catalog** + **Sales**; payments/shipping under **Configuration**.
+- Confirmation copy: order number + short “confirmation email on the way” line.
 
 ## 9. Success metrics
-- Merchant can place a test order end-to-end within one hour of sample-data install (happy path).
-- ≥ 95% of test checkouts with valid payment sandbox credentials reach `OrderStatus` paid/processing without manual DB fixes.
-- Zero checkout crashes on empty cart, invalid address, or payment decline (handled errors only).
-- Support tickets for “can’t find order” and “can’t pay” trend down after GA vs soft-launch baseline.
+- Merchant completes a test purchase end-to-end within one hour of sample-data install.
+- ≥ 95% of sandbox-payment test checkouts reach paid/processing without manual DB repair.
+- Empty cart, invalid address, and payment decline show handled errors (no unhandled checkout failures).
+- “Can’t pay” / “can’t find order” support volume declines after GA vs soft-launch baseline.
 
 ## 10. Risks and open questions
-- Which payment provider is mandatory in CI/demo (PayPal, Stripe, Manual)? (Proposed: Manual + one sandbox online method.)
-- Guest checkout on vs off by default per store? (Proposed: admin setting; sample store on.)
-- Tax inclusive vs exclusive display defaults by region? (Proposed: leave to store tax settings; document in launch checklist.)
-- Theme: DefaultClean only for MVP, or allow installed themes? (Proposed: DefaultClean for proof; themes allowed if they don’t break checkout selectors.)
-- Inventory oversell under concurrency: accept platform inventory rules for v1; no new reservation system in this PRD.
+| Question | Proposed default |
+|---|---|
+| Mandatory payment method for CI/demo? | Manual + one sandbox online provider |
+| Guest checkout default? | Admin setting; sample store **on** |
+| Tax inclusive vs exclusive display? | Store tax settings; document in launch checklist |
+| Theme for MVP proof? | DefaultClean for automated proof; other themes OK if checkout still works |
+| Concurrent oversell? | Accept platform inventory rules; no new reservation layer here |
 
 ## 11. Release plan
-1. **Alpha:** FR1–FR6 on a clean install with sample catalog; Manual payment + one shipping method; verify-nopcommerce happy path (search → cart → checkout → confirm).
-2. **Beta:** FR7–FR10 hardened; admin order fulfillment; localization pass; guest + registered checkout; optional FR11 pickup point.
-3. **GA:** FR12–FR14 as time allows; docs for merchant launch checklist; FR15–FR17 only with explicit ask.
+1. **Alpha (shopper buy-path Must):** FR1–FR6 — sample catalog, Manual payment, one shipping method; prove with `verify-nopcommerce` (search → cart → checkout → confirm).
+2. **Beta (operate the store):** FR7–FR10 — admin catalog + order fulfillment, localization, guest + registered; optional FR11 pickup point.
+3. **GA (retail polish):** FR12–FR14 as capacity allows; merchant launch checklist docs; FR15–FR17 only on explicit ask.
 
-## Appendix — Skill handoff
-When implementing with `implement-nopcommerce-prd`:
-
-- Treat **Must** as Alpha/Beta only; skip Should/Could unless requested.
-- Non-goals block pickup slots, RMA portal, and marketplace work from sneaking into this MVP.
-- Prove with `verify-nopcommerce` (install → search → add to cart → admin login / order visibility).
+## Appendix — Skill handoff (`implement-nopcommerce-prd`)
+- **Parse:** sections 1–11 match the skill’s required fields; FR domains A–G are e-commerce requirement groupings, not extra scope.
+- **Sequence:** implement **Must** only for Alpha/Beta; defer Should/Could unless requested.
+- **Non-goals:** block marketplace, RMA portal, mobile apps, and pickup **time slots** from this MVP.
+- **Prove:** `verify-nopcommerce` — install → search → add to cart → checkout path → admin order visibility.
