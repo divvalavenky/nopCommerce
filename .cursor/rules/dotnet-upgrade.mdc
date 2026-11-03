@@ -1,0 +1,28 @@
+---
+description: Keep .NET TFM, SDK pin, Docker/CI, and framework packages in sync on upgrades
+alwaysApply: true
+---
+
+# .NET upgrades
+
+When changing the .NET version (or asked to upgrade/retarget), follow `.cursor/skills/upgrade-dotnet/SKILL.md`. Do not invent the “latest” SDK from memory—resolve it from Microsoft `release-metadata`.
+
+## Must stay in sync
+
+- `src/Directory.Build.props` TFM **and** every hard-coded plugin/build `netN.0` (`*.csproj`, `Notes.txt`, `ClearPluginAssemblies*`)
+- `global.json`, `Dockerfile` (`sdk`/`aspnet` tags), `.github/workflows/dotnet.yml`, README “runs on .NET N”
+- Rebuild and commit `src/Build/ClearPluginAssemblies.dll` + `.runtimeconfig.json` (RC runtimes need the **exact** framework version, not `N.0.0`)
+
+## Packages
+
+Bump only framework-tied Microsoft refs to the same runtime build (`Microsoft.AspNetCore.*`, `Microsoft.Extensions.Caching.*`, `Microsoft.Data.Sqlite`, `System.Configuration.ConfigurationManager`, Facebook auth package).
+
+```xml
+<!-- ❌ BAD: bump Mapster because the version looks like a TFM -->
+<PackageReference Include="Mapster" Version="10.0.12" />
+
+<!-- ✅ GOOD: align AspNetCore packages with the target runtime -->
+<PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="11.0.0-rc.3.26522.148" />
+```
+
+After unit tests, smoke with `verify-nopcommerce`.
