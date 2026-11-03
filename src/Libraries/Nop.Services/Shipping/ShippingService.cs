@@ -1,4 +1,5 @@
-﻿using Nop.Core;
+﻿using System.Globalization;
+using Nop.Core;
 using Nop.Core.Domain.Catalog;
 using Nop.Core.Domain.Common;
 using Nop.Core.Domain.Customers;
@@ -330,7 +331,9 @@ public partial class ShippingService : IShippingService
             }
 
             //set dimensions as cube root of volume
-            width = length = height = Convert.ToDecimal(Math.Pow(Convert.ToDouble(totalVolume), 1.0 / 3.0));
+            // .NET 11+ converts double->decimal with full binary precision; round to 15 significant
+            // digits so cube-root results stay at the previous (practical) decimal precision.
+            width = length = height = ConvertDoubleToDecimal(Math.Pow(Convert.ToDouble(totalVolume), 1.0 / 3.0));
 
             //sometimes we have products with sizes like 1x1x20
             //that's why let's ensure that a maximum dimension is always preserved
@@ -750,6 +753,19 @@ public partial class ShippingService : IShippingService
         }
 
         return additionalShippingCharge;
+    }
+
+    /// <summary>
+    /// Converts a <see cref="double"/> to <see cref="decimal"/> using the significant-digit
+    /// rounding that .NET used prior to the .NET 11 correctly-rounded conversion change.
+    /// </summary>
+    protected static decimal ConvertDoubleToDecimal(double value)
+    {
+        Span<char> text = stackalloc char[32];
+        if (!value.TryFormat(text, out var length, "G15", CultureInfo.InvariantCulture))
+            return Convert.ToDecimal(value);
+
+        return decimal.Parse(text[..length], NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 
     #endregion
