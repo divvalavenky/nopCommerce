@@ -1,4 +1,5 @@
-﻿using Nop.Services.Helpers;
+﻿using Nop.Core.Http;
+using Nop.Services.Helpers;
 
 namespace Nop.Services.Common;
 
@@ -37,7 +38,10 @@ public partial class StoreHttpClient
     /// </returns>
     public virtual async Task KeepAliveAsync()
     {
-        await _httpClient.GetStringAsync(NopCommonDefaults.KeepAlivePath);
+        using var request = new HttpRequestMessage(HttpMethod.Get, NopCommonDefaults.KeepAlivePath);
+        request.Options.Set(NopHttpDefaults.SkipRateLimitRetry, true);
+        using var response = await _httpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
     }
 
     #endregion

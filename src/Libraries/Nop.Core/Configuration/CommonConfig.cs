@@ -69,5 +69,23 @@ public partial class CommonConfig : IConfig
     /// <summary>
     /// Default status code to set on the response when a request is rejected.
     /// </summary>
-    public int RejectionStatusCode { get; set; } = 503;
+    public int RejectionStatusCode { get; set; } = 429;
+
+    /// <summary>
+    /// Total sends for one outbound request, including the first.
+    /// 1 or less turns retry off. Values above 5 are clamped to 5.
+    /// </summary>
+    public int OutboundRetryMaxAttempts { get; set; } = 3;
+
+    /// <summary>
+    /// Base delay, in milliseconds, for exponential backoff when the response has no Retry-After.
+    /// Values below 1 are treated as 1.
+    /// </summary>
+    public int OutboundRetryBaseDelayMilliseconds { get; set; } = 200;
+
+    /// <summary>
+    /// Cap, in milliseconds, on one exponential wait when the response has no Retry-After.
+    /// A Retry-After header is honored up to 60 seconds regardless of this value.
+    /// </summary>
+    public int OutboundRetryMaxDelayMilliseconds { get; set; } = 2000;
 }
