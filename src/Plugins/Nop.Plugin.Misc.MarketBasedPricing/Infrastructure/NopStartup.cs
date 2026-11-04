@@ -27,7 +27,8 @@ public class NopStartup : INopStartup
         {
             var inner = sp.GetRequiredService<PriceCalculationService>();
             var marketPricing = sp.GetRequiredService<IMarketPricingService>();
-            return new MarketBasedPriceCalculationService(inner, marketPricing);
+            var productService = sp.GetRequiredService<IProductService>();
+            return new MarketBasedPriceCalculationService(inner, marketPricing, productService);
         });
     }
 

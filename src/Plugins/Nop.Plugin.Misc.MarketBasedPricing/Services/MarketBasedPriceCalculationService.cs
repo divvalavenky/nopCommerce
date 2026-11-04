@@ -16,16 +16,19 @@ public class MarketBasedPriceCalculationService : IPriceCalculationService
 
     protected readonly IPriceCalculationService _inner;
     protected readonly IMarketPricingService _marketPricingService;
+    protected readonly IProductService _productService;
 
     #endregion
 
     #region Ctor
 
     public MarketBasedPriceCalculationService(IPriceCalculationService inner,
-        IMarketPricingService marketPricingService)
+        IMarketPricingService marketPricingService,
+        IProductService productService)
     {
         _inner = inner;
         _marketPricingService = marketPricingService;
+        _productService = productService;
     }
 
     #endregion
@@ -63,9 +66,32 @@ public class MarketBasedPriceCalculationService : IPriceCalculationService
     public virtual Task<decimal> GetProductCostAsync(Product product, string attributesXml)
         => _inner.GetProductCostAsync(product, attributesXml);
 
-    public virtual Task<decimal> GetProductAttributeValuePriceAdjustmentAsync(Product product, ProductAttributeValue value,
+    public virtual async Task<decimal> GetProductAttributeValuePriceAdjustmentAsync(Product product, ProductAttributeValue value,
         Customer customer, Store store, decimal? productPrice = null, int quantity = 1)
-        => _inner.GetProductAttributeValuePriceAdjustmentAsync(product, value, customer, store, productPrice, quantity);
+    {
+        // Percentage and associated-product adjustments call GetFinalPriceAsync.
+        // Doing that on the inner service skips the market base price, so resolve it here.
+        if (value != null && value.AttributeValueType == AttributeValueType.AssociatedToProduct)
+        {
+            var associatedProduct = await _productService.GetProductByIdAsync(value.AssociatedProductId);
+            if (associatedProduct == null)
+                return decimal.Zero;
+
+            var (_, finalPrice, _, _) = await GetFinalPriceAsync(associatedProduct, customer, store);
+            return finalPrice * value.Quantity;
+        }
+
+        if (value != null
+            && value.AttributeValueType == AttributeValueType.Simple
+            && value.PriceAdjustmentUsePercentage
+            && !productPrice.HasValue)
+        {
+            var (_, finalPrice, _, _) = await GetFinalPriceAsync(product, customer, store, quantity: quantity);
+            productPrice = finalPrice;
+        }
+
+        return await _inner.GetProductAttributeValuePriceAdjustmentAsync(product, value, customer, store, productPrice, quantity);
+    }
 
     public virtual Task<decimal> RoundPriceAsync(decimal value, Currency currency = null)
         => _inner.RoundPriceAsync(value, currency);
