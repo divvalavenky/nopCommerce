@@ -1,0 +1,100 @@
+@model ConfigurationModel
+
+@{
+    Layout = "_ConfigurePlugin";
+}
+
+<form asp-controller="MarketBasedPricing" asp-action="Configure" method="post">
+    <div class="cards-group">
+        <div class="card card-default">
+            <div class="card-body">
+                <div class="form-group row">
+                    <div class="col-md-3">
+                        <nop-label asp-for="Enabled" />
+                    </div>
+                    <div class="col-md-9">
+                        <nop-editor asp-for="Enabled" />
+                        <span asp-validation-for="Enabled"></span>
+                    </div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-3">
+                        <nop-label asp-for="PreferShippingAddress" />
+                    </div>
+                    <div class="col-md-9">
+                        <nop-editor asp-for="PreferShippingAddress" />
+                        <span asp-validation-for="PreferShippingAddress"></span>
+                    </div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-9 offset-md-3">
+                        <button type="submit" name="save" class="btn btn-primary">@T("Admin.Common.Save")</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+
+<div class="cards-group">
+    <div class="card card-default">
+        <div class="card-header">
+            @T("Plugins.Misc.MarketBasedPricing.Markets")
+            <div class="float-right">
+                <a asp-action="CreateMarket" class="btn btn-primary">
+                    <i class="fas fa-plus-square"></i>
+                    @T("Plugins.Misc.MarketBasedPricing.Markets.AddNew")
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            @await Html.PartialAsync("Table", new DataTablesModel
+            {
+                Name = "markets-grid",
+                UrlRead = new DataUrl("MarketList", "MarketBasedPricing", null),
+                UrlDelete = new DataUrl("DeleteMarket", "MarketBasedPricing", null),
+                Length = Model.MarketSearchModel.PageSize,
+                LengthMenu = Model.MarketSearchModel.AvailablePageSizes,
+                ColumnCollection = new List<ColumnProperty>
+                {
+                    new ColumnProperty(nameof(MarketModel.Name))
+                    {
+                        Title = T("Plugins.Misc.MarketBasedPricing.Fields.Name").Text
+                    },
+                    new ColumnProperty(nameof(MarketModel.StoreName))
+                    {
+                        Title = T("Plugins.Misc.MarketBasedPricing.Fields.Store").Text,
+                        Width = "150"
+                    },
+                    new ColumnProperty(nameof(MarketModel.Active))
+                    {
+                        Title = T("Plugins.Misc.MarketBasedPricing.Fields.Active").Text,
+                        Width = "100",
+                        ClassName = NopColumnClassDefaults.CenterAll,
+                        Render = new RenderBoolean()
+                    },
+                    new ColumnProperty(nameof(MarketModel.DisplayOrder))
+                    {
+                        Title = T("Plugins.Misc.MarketBasedPricing.Fields.DisplayOrder").Text,
+                        Width = "100",
+                        ClassName = NopColumnClassDefaults.CenterAll
+                    },
+                    new ColumnProperty(nameof(MarketModel.Id))
+                    {
+                        Title = T("Admin.Common.Edit").Text,
+                        Width = "100",
+                        ClassName = NopColumnClassDefaults.Button,
+                        Render = new RenderButtonEdit(new DataUrl("EditMarket"))
+                    },
+                    new ColumnProperty(nameof(MarketModel.Id))
+                    {
+                        Title = T("Admin.Common.Delete").Text,
+                        Width = "100",
+                        ClassName = NopColumnClassDefaults.Button,
+                        Render = new RenderButtonRemove(T("Admin.Common.Delete").Text)
+                    }
+                }
+            })
+        </div>
+    </div>
+</div>
