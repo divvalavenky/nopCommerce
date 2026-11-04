@@ -308,6 +308,9 @@ public class MarketBasedPricingController : BasePluginController
     [CheckPermission(StandardPermission.Configuration.MANAGE_PLUGINS)]
     public async Task<IActionResult> MarketProductPriceUpdate(MarketProductPriceModel model)
     {
+        if (model.Price < decimal.Zero)
+            return ErrorJson(await _localizationService.GetResourceAsync("Plugins.Misc.MarketBasedPricing.ProductPrice.Invalid"));
+
         var entity = await _marketPricingService.GetMarketProductPriceByIdAsync(model.Id);
         if (entity == null)
             return new NullJsonResult();
