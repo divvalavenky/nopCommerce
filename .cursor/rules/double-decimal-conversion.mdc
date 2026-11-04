@@ -1,0 +1,19 @@
+---
+description: Avoid raw double→decimal casts for money and shipping dimensions
+alwaysApply: true
+---
+
+# double → decimal conversions
+
+For currency, prices, and shipping dimensions, prefer `decimal` end-to-end. When a `double` API is unavoidable (e.g. `Math.Pow` for cube roots), do not rely on raw `Convert.ToDecimal(double)` / `(decimal)double`—on .NET 11+ that preserves binary noise (`4` → `3.999…M`).
+
+```csharp
+// ❌ BAD
+width = Convert.ToDecimal(Math.Pow(Convert.ToDouble(totalVolume), 1.0 / 3.0));
+
+// ✅ GOOD — G15 significant-digit rounding (pre-.NET 11 practical precision)
+width = ConvertDoubleToDecimal(Math.Pow(Convert.ToDouble(totalVolume), 1.0 / 3.0));
+// see ShippingService.ConvertDoubleToDecimal, or decimal literals: 12.37m
+```
+
+Use decimal literals (`12.37m`) in production and test code whenever the value is base-10 by nature.

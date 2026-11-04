@@ -1,0 +1,20 @@
+---
+description: Bind NUnit decimal TestCase args with strings to avoid double conversion noise
+alwaysApply: true
+---
+
+# Decimal TestCase values
+
+NUnit attribute literals are `double`. Feeding them into `decimal` parameters is lossy—especially on .NET 11+, where double→decimal is correctly rounded and no longer looks like `12.37M`.
+
+```csharp
+// ❌ BAD — expected becomes 12.369999…M; Round() returns 12.37M
+[TestCase(12.366, 12.37, RoundingType.Rounding001)]
+public void CanRound(decimal value, decimal expected, RoundingType type) { … }
+
+// ✅ GOOD — NUnit parses exact decimals from strings
+[TestCase("12.366", "12.37", RoundingType.Rounding001)]
+public void CanRound(decimal value, decimal expected, RoundingType type) { … }
+```
+
+Prefer string TestCase args or `TestCaseSource` with `m` literals. Do not “fix” by loosening assertions with large tolerances unless the behavior under test is inherently approximate.
